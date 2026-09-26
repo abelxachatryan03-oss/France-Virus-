@@ -1,6 +1,6 @@
-// language: C++, file: napoleon.cpp
-// build MinGW: g++ napoleon.cpp -o France.exe -lgdiplus -lwinmm -mwindows
-// build MSVC:  cl napoleon.cpp /EHsc /O2 /link gdiplus.lib winmm.lib user32.lib gdi32.lib /OUT:France.exe
+// language: C++, file: src/napoleon.cpp
+// build MinGW: g++ src/napoleon.cpp -o France.exe -lgdiplus -lwinmm -mwindows
+// build MSVC:  cl src/napoleon.cpp /EHsc /O2 /link gdiplus.lib winmm.lib user32.lib gdi32.lib /OUT:France.exe
 // put Bonaparte.wav and Napoleon.png next to France.exe
 
 #include <windows.h>
@@ -53,6 +53,11 @@ std::vector<Clone> g_clones;
 
 ULONG_PTR g_gdiToken = 0;
 
+// тайминги (мс)
+const int PHASE_ERRORS_MS   = 13000;   // сколько идут ошибки
+const int PHASE_BSOD_MS     = 2500;    // сколько висит BSOD
+const int PHASE_NAPOLEON_MS = 15000;   // сколько летают клоны
+
 void InitGdiPlus() {
     GdiplusStartupInput gsi;
     GdiplusStartup(&g_gdiToken, &gsi, nullptr);
@@ -86,32 +91,60 @@ void SpawnClone(int screenW, int screenH) {
     g_clones.push_back(c);
 }
 
-void DrawScene(HDC hdc, int W, int H, int elapsedMs) {
-    Graphics g(hdc);
+// ---------- фаза ошибок ----------
+void DrawErrors(Graphics& g, int W, int H) {
+    std::uniform_int_distribution<int> xd(0, W - 500);
+    std::uniform_int_distribution<int> yd(0, H - 60);
+    std::uniform_int_distribution<int> fd(14, 32);
+    std::uniform_int_distribution<int> cd(200, 255);
+    std::uniform_int_distribution<int> count(10, 22);
 
-    SolidBrush black(Color(255, 0, 0, 0));
-    g.FillRectangle(&black, 0, 0, W, H);
-
-    if (elapsedMs < 15000) {
-        std::uniform_int_distribution<int> xd(0, W - 500);
-        std::uniform_int_distribution<int> yd(0, H - 60);
-        std::uniform_int_distribution<int> fd(14, 32);
-        std::uniform_int_distribution<int> cd(200, 255);
-        std::uniform_int_distribution<int> count(10, 22);
-
-        FontFamily ff(L"Consolas");
-        int n = count(g_rng);
-        for (int i = 0; i < n; i++) {
-            int idx = std::uniform_int_distribution<int>(0, (int)g_errorTexts.size() - 1)(g_rng);
-            int fs = fd(g_rng);
-            Font font(&ff, (REAL)fs, FontStyleRegular, UnitPixel);
-            SolidBrush brush(Color(255, cd(g_rng), 30, 30));
-            g.DrawString(g_errorTexts[idx].c_str(), -1, &font,
-                         PointF((REAL)xd(g_rng), (REAL)yd(g_rng)), &brush);
-        }
-        return;
+    FontFamily ff(L"Consolas");
+    int n = count(g_rng);
+    for (int i = 0; i < n; i++) {
+        int idx = std::uniform_int_distribution<int>(0, (int)g_errorTexts.size() - 1)(g_rng);
+        int fs = fd(g_rng);
+        Font font(&ff, (REAL)fs, FontStyleRegular, UnitPixel);
+        SolidBrush brush(Color(255, cd(g_rng), 30, 30));
+        g.DrawString(g_errorTexts[idx].c_str(), -1, &font,
+                     PointF((REAL)xd(g_rng), (REAL)yd(g_rng)), &brush);
     }
+}
 
+// ---------- фаза BSOD ----------
+void DrawBsod(Graphics& g, int W, int H) {
+    // синий фон классического BSOD (0x0078D7)
+    SolidBrush blue(Color(255, 0, 120, 215));
+    g.FillRectangle(&blue, 0, 0, W, H);
+
+    FontFamily ff(L"Segoe UI");
+    Font fontBig(&ff, 96.0f, FontStyleRegular, UnitPixel);
+    Font fontMed(&ff, 32.0f, FontStyleRegular, UnitPixel);
+    Font fontSmall(&ff, 20.0f, FontStyleRegular, UnitPixel);
+    SolidBrush white(Color(255, 255, 255, 255));
+
+    float margin = W * 0.12f;
+    float y = H * 0.28f;
+
+    g.DrawString(L":(", -1, &fontBig, PointF(margin, y), &white);
+    y += 130.0f;
+    g.DrawString(L"Votre PC a rencontré un problème et doit redémarrer.",
+                 -1, &fontMed, PointF(margin, y), &white);
+    y += 70.0f;
+    g.DrawString(L"Napoléon a piraté votre PC.", -1, &fontMed,
+                 PointF(margin, y), &white);
+    y += 70.0f;
+    g.DrawString(L"Code d'arrêt: NAPOLEON_BONAPARTE_FAILURE", -1, &fontSmall,
+                 PointF(margin, y), &white);
+    y += 40.0f;
+    g.DrawString(L"0x00001815 (0xB0NAP4RTE, 0xW4TERL00, 0x00000000, 0xFFFFFFFF)",
+                 -1, &fontSmall, PointF(margin, y), &white);
+    y += 60.0f;
+    g.DrawString(L"0% terminé", -1, &fontSmall, PointF(margin, y), &white);
+}
+
+// ---------- фаза Наполеона ----------
+void DrawNapoleonPhase(Graphics& g, int W, int H) {
     if ((int)g_clones.size() < 120) {
         for (int i = 0; i < 3; i++) SpawnClone(W, H);
     }
@@ -132,6 +165,23 @@ void DrawScene(HDC hdc, int W, int H, int elapsedMs) {
     if (g_napoleon) {
         int bigSize = min(W, H) / 3;
         g.DrawImage(g_napoleon, (W - bigSize) / 2, (H - bigSize) / 2, bigSize, bigSize);
+    }
+}
+
+void DrawScene(HDC hdc, int W, int H, int elapsedMs) {
+    Graphics g(hdc);
+
+    SolidBrush black(Color(255, 0, 0, 0));
+    g.FillRectangle(&black, 0, 0, W, H);
+
+    if (elapsedMs < PHASE_ERRORS_MS) {
+        DrawErrors(g, W, H);
+    } else if (elapsedMs < PHASE_ERRORS_MS + PHASE_BSOD_MS) {
+        DrawBsod(g, W, H);
+    } else if (elapsedMs < PHASE_ERRORS_MS + PHASE_BSOD_MS + PHASE_NAPOLEON_MS) {
+        DrawNapoleonPhase(g, W, H);
+    } else {
+        // в самом конце цикла — просто чёрный (промежуток перед рестартом)
     }
 }
 
@@ -174,7 +224,9 @@ int WINAPI WinMain(HINSTANCE hInst, HINSTANCE, LPSTR, int) {
     ShowWindow(g_hwnd, SW_SHOW);
     UpdateWindow(g_hwnd);
 
-    auto start = std::chrono::steady_clock::now();
+    const int CYCLE_MS = PHASE_ERRORS_MS + PHASE_BSOD_MS + PHASE_NAPOLEON_MS;
+    auto cycleStart = std::chrono::steady_clock::now();
+
     MSG msg;
     while (true) {
         while (PeekMessage(&msg, nullptr, 0, 0, PM_REMOVE)) {
@@ -184,9 +236,14 @@ int WINAPI WinMain(HINSTANCE hInst, HINSTANCE, LPSTR, int) {
         }
 
         auto now = std::chrono::steady_clock::now();
-        int elapsed = (int)std::chrono::duration_cast<std::chrono::milliseconds>(now - start).count();
+        int elapsed = (int)std::chrono::duration_cast<std::chrono::milliseconds>(now - cycleStart).count();
 
-        if (elapsed > 60000) break;
+        // рестарт цикла
+        if (elapsed >= CYCLE_MS) {
+            g_clones.clear();
+            cycleStart = std::chrono::steady_clock::now();
+            elapsed = 0;
+        }
 
         HDC hdc = GetDC(g_hwnd);
         DrawScene(hdc, W, H, elapsed);
