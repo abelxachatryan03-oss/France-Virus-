@@ -1,0 +1,18 @@
+name: Build France
+
+on: [push, workflow_dispatch]
+
+jobs:
+  build:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Setup MSVC
+        uses: ilammy/msvc-dev-cmd@v1
+      - name: Compile
+        run: cl src/napoleon.cpp /EHsc /O2 /link gdiplus.lib winmm.lib user32.lib gdi32.lib /OUT:France.exe
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: France
+          path: France.exe
