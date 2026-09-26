@@ -11,8 +11,15 @@ jobs:
         uses: ilammy/msvc-dev-cmd@v1
       - name: Compile
         run: cl src/napoleon.cpp /EHsc /O2 /link gdiplus.lib winmm.lib user32.lib gdi32.lib /OUT:France.exe
+      - name: Copy assets
+        run: |
+          copy src\Bonaparte.wav .
+          copy src\Napoleon.png .
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
           name: France
-          path: France.exe
+          path: |
+            France.exe
+            Bonaparte.wav
+            Napoleon.png
