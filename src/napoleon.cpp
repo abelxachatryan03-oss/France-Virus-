@@ -53,10 +53,7 @@ std::vector<Clone> g_clones;
 
 ULONG_PTR g_gdiToken = 0;
 
-// тайминги (мс)
-const int PHASE_ERRORS_MS   = 13000;   // сколько идут ошибки
-const int PHASE_BSOD_MS     = 2500;    // сколько висит BSOD
-const int PHASE_NAPOLEON_MS = 15000;   // сколько летают клоны
+const int NAPOLEON_AT_MS = 13000; // с этой секунды появляется Наполеон
 
 void InitGdiPlus() {
     GdiplusStartupInput gsi;
@@ -76,6 +73,22 @@ Image* LoadPng(const wchar_t* path) {
     return img;
 }
 
+DWORD GetWavLengthMs(const wchar_t* path) {
+    MCI_OPEN_PARMS mciOpen = {};
+    mciOpen.lpstrDeviceType = L"waveaudio";
+    mciOpen.lpstrElementName = path;
+    if (mciSendCommand(0, MCI_OPEN, MCI_OPEN_TYPE | MCI_OPEN_ELEMENT, (DWORD_PTR)&mciOpen) != 0)
+        return 0;
+    DWORD deviceId = mciOpen.wDeviceID;
+
+    MCI_STATUS_PARMS mciStatus = {};
+    mciStatus.dwItem = MCI_STATUS_LENGTH;
+    mciSendCommand(deviceId, MCI_STATUS, MCI_STATUS_ITEM, (DWORD_PTR)&mciStatus);
+
+    mciSendCommand(deviceId, MCI_CLOSE, 0, 0);
+    return (DWORD)mciStatus.dwReturn;
+}
+
 void SpawnClone(int screenW, int screenH) {
     std::uniform_real_distribution<float> xd(0, (float)screenW);
     std::uniform_real_distribution<float> yd(0, (float)screenH);
@@ -91,7 +104,6 @@ void SpawnClone(int screenW, int screenH) {
     g_clones.push_back(c);
 }
 
-// ---------- фаза ошибок ----------
 void DrawErrors(Graphics& g, int W, int H) {
     std::uniform_int_distribution<int> xd(0, W - 500);
     std::uniform_int_distribution<int> yd(0, H - 60);
@@ -111,42 +123,9 @@ void DrawErrors(Graphics& g, int W, int H) {
     }
 }
 
-// ---------- фаза BSOD ----------
-void DrawBsod(Graphics& g, int W, int H) {
-    // синий фон классического BSOD (0x0078D7)
-    SolidBrush blue(Color(255, 0, 120, 215));
-    g.FillRectangle(&blue, 0, 0, W, H);
-
-    FontFamily ff(L"Segoe UI");
-    Font fontBig(&ff, 96.0f, FontStyleRegular, UnitPixel);
-    Font fontMed(&ff, 32.0f, FontStyleRegular, UnitPixel);
-    Font fontSmall(&ff, 20.0f, FontStyleRegular, UnitPixel);
-    SolidBrush white(Color(255, 255, 255, 255));
-
-    float margin = W * 0.12f;
-    float y = H * 0.28f;
-
-    g.DrawString(L":(", -1, &fontBig, PointF(margin, y), &white);
-    y += 130.0f;
-    g.DrawString(L"Votre PC a rencontré un problème et doit redémarrer.",
-                 -1, &fontMed, PointF(margin, y), &white);
-    y += 70.0f;
-    g.DrawString(L"Napoléon a piraté votre PC.", -1, &fontMed,
-                 PointF(margin, y), &white);
-    y += 70.0f;
-    g.DrawString(L"Code d'arrêt: NAPOLEON_BONAPARTE_FAILURE", -1, &fontSmall,
-                 PointF(margin, y), &white);
-    y += 40.0f;
-    g.DrawString(L"0x00001815 (0xB0NAP4RTE, 0xW4TERL00, 0x00000000, 0xFFFFFFFF)",
-                 -1, &fontSmall, PointF(margin, y), &white);
-    y += 60.0f;
-    g.DrawString(L"0% terminé", -1, &fontSmall, PointF(margin, y), &white);
-}
-
-// ---------- фаза Наполеона ----------
-void DrawNapoleonPhase(Graphics& g, int W, int H) {
-    if ((int)g_clones.size() < 120) {
-        for (int i = 0; i < 3; i++) SpawnClone(W, H);
+void DrawNapoleon(Graphics& g, int W, int H) {
+    if ((int)g_clones.size() < 80) {
+        for (int i = 0; i < 2; i++) SpawnClone(W, H);
     }
 
     for (auto& c : g_clones) {
@@ -174,15 +153,13 @@ void DrawScene(HDC hdc, int W, int H, int elapsedMs) {
     SolidBrush black(Color(255, 0, 0, 0));
     g.FillRectangle(&black, 0, 0, W, H);
 
-    if (elapsedMs < PHASE_ERRORS_MS) {
-        DrawErrors(g, W, H);
-    } else if (elapsedMs < PHASE_ERRORS_MS + PHASE_BSOD_MS) {
-        DrawBsod(g, W, H);
-    } else if (elapsedMs < PHASE_ERRORS_MS + PHASE_BSOD_MS + PHASE_NAPOLEON_MS) {
-        DrawNapoleonPhase(g, W, H);
-    } else {
-        // в самом конце цикла — просто чёрный (промежуток перед рестартом)
+    // с 13-й секунды — Наполеон под ошибками
+    if (elapsedMs >= NAPOLEON_AT_MS) {
+        DrawNapoleon(g, W, H);
     }
+
+    // ошибки всегда поверх
+    DrawErrors(g, W, H);
 }
 
 LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
@@ -198,7 +175,10 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
 }
 
 int WINAPI WinMain(HINSTANCE hInst, HINSTANCE, LPSTR, int) {
-    PlaySoundW(L"Bonaparte.wav", nullptr, SND_FILENAME | SND_ASYNC | SND_LOOP);
+    DWORD wavMs = GetWavLengthMs(L"Bonaparte.wav");
+    if (wavMs == 0) wavMs = 30000;
+
+    PlaySoundW(L"Bonaparte.wav", nullptr, SND_FILENAME | SND_ASYNC);
 
     InitGdiPlus();
     g_napoleon = LoadPng(L"Napoleon.png");
@@ -224,10 +204,9 @@ int WINAPI WinMain(HINSTANCE hInst, HINSTANCE, LPSTR, int) {
     ShowWindow(g_hwnd, SW_SHOW);
     UpdateWindow(g_hwnd);
 
-    const int CYCLE_MS = PHASE_ERRORS_MS + PHASE_BSOD_MS + PHASE_NAPOLEON_MS;
-    auto cycleStart = std::chrono::steady_clock::now();
-
+    auto start = std::chrono::steady_clock::now();
     MSG msg;
+
     while (true) {
         while (PeekMessage(&msg, nullptr, 0, 0, PM_REMOVE)) {
             if (msg.message == WM_QUIT) goto done;
@@ -236,14 +215,9 @@ int WINAPI WinMain(HINSTANCE hInst, HINSTANCE, LPSTR, int) {
         }
 
         auto now = std::chrono::steady_clock::now();
-        int elapsed = (int)std::chrono::duration_cast<std::chrono::milliseconds>(now - cycleStart).count();
+        int elapsed = (int)std::chrono::duration_cast<std::chrono::milliseconds>(now - start).count();
 
-        // рестарт цикла
-        if (elapsed >= CYCLE_MS) {
-            g_clones.clear();
-            cycleStart = std::chrono::steady_clock::now();
-            elapsed = 0;
-        }
+        if ((DWORD)elapsed >= wavMs) break;
 
         HDC hdc = GetDC(g_hwnd);
         DrawScene(hdc, W, H, elapsed);
