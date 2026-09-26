@@ -53,7 +53,7 @@ std::vector<Clone> g_clones;
 
 ULONG_PTR g_gdiToken = 0;
 
-const int NAPOLEON_AT_MS = 13000; // с этой секунды появляется Наполеон
+const int NAPOLEON_AT_MS = 13000;
 
 void InitGdiPlus() {
     GdiplusStartupInput gsi;
@@ -74,19 +74,16 @@ Image* LoadPng(const wchar_t* path) {
 }
 
 DWORD GetWavLengthMs(const wchar_t* path) {
-    MCI_OPEN_PARMS mciOpen = {};
-    mciOpen.lpstrDeviceType = L"waveaudio";
-    mciOpen.lpstrElementName = path;
-    if (mciSendCommand(0, MCI_OPEN, MCI_OPEN_TYPE | MCI_OPEN_ELEMENT, (DWORD_PTR)&mciOpen) != 0)
+    wchar_t cmd[512];
+    swprintf_s(cmd, L"open \"%s\" type waveaudio alias napwav", path);
+    if (mciSendStringW(cmd, nullptr, 0, nullptr) != 0)
         return 0;
-    DWORD deviceId = mciOpen.wDeviceID;
 
-    MCI_STATUS_PARMS mciStatus = {};
-    mciStatus.dwItem = MCI_STATUS_LENGTH;
-    mciSendCommand(deviceId, MCI_STATUS, MCI_STATUS_ITEM, (DWORD_PTR)&mciStatus);
+    wchar_t result[64] = {};
+    mciSendStringW(L"status napwav length", result, 64, nullptr);
+    mciSendStringW(L"close napwav", nullptr, 0, nullptr);
 
-    mciSendCommand(deviceId, MCI_CLOSE, 0, 0);
-    return (DWORD)mciStatus.dwReturn;
+    return (DWORD)_wtoi(result);
 }
 
 void SpawnClone(int screenW, int screenH) {
@@ -153,12 +150,10 @@ void DrawScene(HDC hdc, int W, int H, int elapsedMs) {
     SolidBrush black(Color(255, 0, 0, 0));
     g.FillRectangle(&black, 0, 0, W, H);
 
-    // с 13-й секунды — Наполеон под ошибками
     if (elapsedMs >= NAPOLEON_AT_MS) {
         DrawNapoleon(g, W, H);
     }
 
-    // ошибки всегда поверх
     DrawErrors(g, W, H);
 }
 
